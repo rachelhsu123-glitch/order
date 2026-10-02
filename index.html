@@ -333,6 +333,8 @@
       document.getElementById('orderForm').reset();
       document.getElementById('quantity').value = '1';
       calculateFormSubtotal();
+      // 立即主動重新抓取與渲染，確保畫面自動更新
+      fetchOrders();
     }
   }
 
@@ -341,11 +343,17 @@
       alert('主揪已結單，無法刪除訂單！');
       return;
     }
-    await _supabase.from('orders').delete().eq('id', id);
+    const { error } = await _supabase.from('orders').delete().eq('id', id);
+    if (!error) {
+      fetchOrders();
+    }
   }
 
   async function togglePaid(id, currentStatus) {
-    await _supabase.from('orders').update({ is_paid: !currentStatus }).eq('id', id);
+    const { error } = await _supabase.from('orders').update({ is_paid: !currentStatus }).eq('id', id);
+    if (!error) {
+      fetchOrders();
+    }
   }
 
   function renderOrders() {
@@ -458,6 +466,8 @@
       for (let o of orders) {
         await _supabase.from('orders').delete().eq('id', o.id);
       }
+      // 清空後立即主動重新抓取，確保畫面自動更新
+      fetchOrders();
     }
   }
 
