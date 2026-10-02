@@ -3,9 +3,11 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>辦公室點餐小幫手</title>
+  <title>辦公室點餐小幫手 (即時連動版)</title>
   <!-- 網頁圖標設定 -->
   <link rel="icon" type="image/png" href="可愛點餐介面貼圖.png">
+  <!-- 引入 Supabase JS SDK -->
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <style>
     :root {
       --bg: #f8fafc;
@@ -63,6 +65,12 @@
     .menu-img-container img { width: 100%; max-height: 320px; object-fit: contain; cursor: zoom-in; display: block; }
     .menu-actions { display: flex; justify-content: space-between; align-items: center; margin-top: 8px; font-size: 0.8rem; color: var(--text-muted); }
 
+    /* 獨立網址上傳區塊樣式 */
+    .input-group { display: flex; gap: 8px; margin-top: 6px; }
+    .current-url-display { margin-top: 10px; font-size: 0.85rem; color: var(--text-muted); background: #f8fafc; padding: 8px 12px; border: 1px solid var(--border); border-radius: var(--radius); word-break: break-all; }
+    .current-url-display a { color: var(--primary); text-decoration: none; }
+    .current-url-display a:hover { text-decoration: underline; }
+
     .form-group { margin-bottom: 12px; }
     .form-group label { display: block; font-size: 0.85rem; font-weight: 600; margin-bottom: 6px; }
     .form-control { width: 100%; padding: 8px 12px; border: 1px solid var(--border); border-radius: var(--radius); font-size: 0.9rem; }
@@ -92,7 +100,7 @@
 <div class="container">
   <header>
     <div class="title-group">
-      <h1 id="shopTitle" contenteditable="true" title="點擊可修改店家名稱">今日午餐團購 (點此可改名)</h1>
+      <h1 id="shopTitle" contenteditable="true" title="點擊可修改店家名稱">今日午餐團購 (即時連動版)</h1>
       <p id="todayDate"></p>
     </div>
     <div class="header-actions">
@@ -128,11 +136,27 @@
   </div>
 
   <div class="layout-grid">
-    <!-- 左側：菜單上傳與點餐 -->
+    <!-- 左側：菜單上傳、網址上傳與點餐 -->
     <div>
+      <!-- 獨立網址上傳欄位 (即時同步) -->
+      <div class="card">
+        <div class="card-title">🔗 共用網址設定</div>
+        <div class="form-group" style="margin-bottom: 0;">
+          <label for="urlInput">輸入菜單/活動網址：</label>
+          <div class="input-group">
+            <input type="url" id="urlInput" class="form-control" placeholder="https://example.com">
+            <button type="button" class="btn btn-primary" onclick="submitSharedUrl()">更新</button>
+          </div>
+          <div class="current-url-display">
+            <strong>目前共用網址：</strong>
+            <div id="displayUrl" style="margin-top: 2px; color: var(--text-muted);">載入中...</div>
+          </div>
+        </div>
+      </div>
+
       <div class="card">
         <div class="card-title">
-          <span>📖 店家菜單</span>
+          <span>📖 店家菜單圖片</span>
           <button class="btn btn-sm btn-outline" id="removeImgBtn" style="display:none;" onclick="removeMenuImage()">移除圖片</button>
         </div>
         
@@ -180,7 +204,7 @@
     <div>
       <div class="card">
         <div class="card-title">
-          <span>📋 即時點餐清單</span>
+          <span>📋 即時點餐清單 (多人同步)</span>
         </div>
         <ul id="orderList" class="order-list"></ul>
       </div>
@@ -200,11 +224,18 @@
 </div>
 
 <script>
-  let orders = JSON.parse(localStorage.getItem('office_orders') || '[]');
+  // ===== Supabase 連線設定 =====
+  const SUPABASE_URL = 'https://empupkopcyczxlevmudm.supabase.co';
+  const SUPABASE_ANON_KEY = 'sb_publishable_1-LJ4UZT9wdfZW-9_P8csw_gGEXvhI8';
+
+  const { createClient } = supabase;
+  const _supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+  let orders = [];
   let isLocked = JSON.parse(localStorage.getItem('office_locked') || 'false');
   let savedMenuImg = localStorage.getItem('office_menu_img') || '';
 
-  // 初始化日期與介面狀態
+  // 初始化日期
   const optionsDate = { year: 'numeric', month: 'long', day: 'numeric', weekday: 'long' };
   document.getElementById('todayDate').innerText = new Date().toLocaleDateString('zh-TW', optionsDate);
 
@@ -212,18 +243,44 @@
     showMenuImage(savedMenuImg);
   }
 
-  updateUI();
+  // 初始化載入資料與即時監聽
+  fetchOrders();
+  fetchSharedUrl();
+  setupRealtimeSubscription();
+
+  // ===== 訂單相關邏輯 =====
+  async function fetchOrders() {
+    const { data, error } = await _supabase.from('orders').select('*').order('created_at', { ascending: true });
+    if (!error) {
+      orders = data || [];
+      updateUI();
+    }
+  }
+
+  function setupRealtimeSubscription() {
+    // 監聽 orders 與 app_settings 兩張表的即時變更
+    _supabase
+      .channel('public:all_changes')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'orders' }, payload => {
+        fetchOrders();
+      })
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'app_settings' }, payload => {
+        if (payload.new && payload.new.key === 'shared_url') {
+          updateSharedUrlDisplay(payload.new.value);
+        }
+      })
+      .subscribe();
+  }
 
   function updateUI() {
     renderOrders();
     renderSummary();
     updateStats();
     updateLockState();
-    localStorage.setItem('office_orders', JSON.stringify(orders));
     localStorage.setItem('office_locked', JSON.stringify(isLocked));
   }
 
-  function addOrder(e) {
+  async function addOrder(e) {
     e.preventDefault();
     if (isLocked) {
       alert('主揪已結單，無法再新增或修改訂單！');
@@ -237,33 +294,31 @@
 
     const newOrder = {
       id: Date.now(),
-      userName,
-      itemName,
-      price,
-      options,
-      isPaid: false
+      user_name: userName,
+      item_name: itemName,
+      price: price,
+      options: options,
+      is_paid: false
     };
 
-    orders.push(newOrder);
-    document.getElementById('orderForm').reset();
-    updateUI();
+    const { error } = await _supabase.from('orders').insert([newOrder]);
+    if (error) {
+      alert('送出訂單失敗: ' + error.message);
+    } else {
+      document.getElementById('orderForm').reset();
+    }
   }
 
-  function deleteOrder(id) {
+  async function deleteOrder(id) {
     if (isLocked) {
       alert('主揪已結單，無法刪除訂單！');
       return;
     }
-    orders = orders.filter(o => o.id !== id);
-    updateUI();
+    await _supabase.from('orders').delete().eq('id', id);
   }
 
-  function togglePaid(id) {
-    const order = orders.find(o => o.id === id);
-    if (order) {
-      order.isPaid = !order.isPaid;
-      updateUI();
-    }
+  async function togglePaid(id, currentStatus) {
+    await _supabase.from('orders').update({ is_paid: !currentStatus }).eq('id', id);
   }
 
   function renderOrders() {
@@ -276,12 +331,12 @@
     listEl.innerHTML = orders.map(o => `
       <li class="order-item">
         <div>
-          <div><span class="user">${o.userName}</span> <span class="price">$${o.price}</span></div>
-          <div class="note">${o.itemName} ${o.options ? ' (' + o.options + ')' : ''}</div>
+          <div><span class="user">${o.user_name}</span> <span class="price">$${o.price}</span></div>
+          <div class="note">${o.item_name} ${o.options ? ' (' + o.options + ')' : ''}</div>
         </div>
         <div style="display: flex; gap: 6px; align-items: center;">
-          <span class="${o.isPaid ? 'badge-paid' : 'badge-unpaid'}" onclick="togglePaid(${o.id})" title="點擊切換付款狀態">
-            ${o.isPaid ? '已付款' : '未付款'}
+          <span class="${o.is_paid ? 'badge-paid' : 'badge-unpaid'}" onclick="togglePaid(${o.id}, ${o.is_paid})" title="點擊切換付款狀態">
+            ${o.is_paid ? '已付款' : '未付款'}
           </span>
           ${!isLocked ? `<button class="btn btn-sm btn-outline" style="color: var(--danger); border-color: #fecaca;" onclick="deleteOrder(${o.id})">刪</button>` : ''}
         </div>
@@ -296,12 +351,11 @@
       return;
     }
 
-    // 彙總相同品項與備註
     const summaryMap = {};
     orders.forEach(o => {
-      const key = `${o.itemName}_${o.options || '無'}`;
+      const key = `${o.item_name}_${o.options || '無'}`;
       if (!summaryMap[key]) {
-        summaryMap[key] = { itemName: o.itemName, options: o.options, count: 0, totalPrice: 0 };
+        summaryMap[key] = { itemName: o.item_name, options: o.options, count: 0, totalPrice: 0 };
       }
       summaryMap[key].count += 1;
       summaryMap[key].totalPrice += o.price;
@@ -318,8 +372,8 @@
   function updateStats() {
     const totalCount = orders.length;
     const totalAmount = orders.reduce((sum, o) => sum + o.price, 0);
-    const uniqueUsers = new Set(orders.map(o => o.userName)).size;
-    const unpaidCount = orders.filter(o => !o.isPaid).length;
+    const uniqueUsers = new Set(orders.map(o => o.user_name)).size;
+    const unpaidCount = orders.filter(o => !o.is_paid).length;
 
     document.getElementById('totalCount').innerText = totalCount;
     document.getElementById('totalAmount').innerText = `$${totalAmount}`;
@@ -350,16 +404,71 @@
       submitBtn.style.opacity = '1';
       submitBtn.innerText = '+ 送出訂單';
     }
-    renderOrders(); // 重新渲染以隱藏/顯示刪除按鈕
+    renderOrders();
   }
 
-  function clearAllOrders() {
+  async function clearAllOrders() {
     if (confirm('確定要清空所有訂單嗎？')) {
-      orders = [];
-      updateUI();
+      for (let o of orders) {
+        await _supabase.from('orders').delete().eq('id', o.id);
+      }
     }
   }
 
+  // ===== 共用網址功能邏輯 (即時同步) =====
+  async function fetchSharedUrl() {
+    const { data, error } = await _supabase
+      .from('app_settings')
+      .select('value')
+      .eq('key', 'shared_url')
+      .single();
+
+    if (!error && data) {
+      updateSharedUrlDisplay(data.value);
+    } else {
+      document.getElementById('displayUrl').textContent = '尚未設定網址';
+    }
+  }
+
+  function updateSharedUrlDisplay(url) {
+    const displayEl = document.getElementById('displayUrl');
+    if (!url) {
+      displayEl.innerHTML = '<span style="color: #94a3b8;">目前尚未設定網址</span>';
+    } else {
+      displayEl.innerHTML = `<a href="${url}" target="_blank">${url}</a>`;
+    }
+  }
+
+  async function submitSharedUrl() {
+    const urlInput = document.getElementById('urlInput');
+    const urlValue = urlInput.value.trim();
+
+    if (!urlValue) {
+      alert('請先輸入網址！');
+      return;
+    }
+
+    try {
+      new URL(urlValue);
+    } catch (_) {
+      alert('請輸入有效的網址格式（需包含 http:// 或 https://）');
+      return;
+    }
+
+    const { error } = await _supabase
+      .from('app_settings')
+      .update({ value: urlValue })
+      .eq('key', 'shared_url');
+
+    if (error) {
+      alert('更新共用網址失敗: ' + error.message);
+    } else {
+      alert('共用網址已更新，所有在線上的同事將同步看到！');
+      urlInput.value = '';
+    }
+  }
+
+  // ===== 菜單圖片與其他工具 =====
   function handleImageUpload(e) {
     const file = e.target.files[0];
     if (file) {
@@ -391,9 +500,8 @@
 
   function openLightbox() {
     const lightbox = document.getElementById('lightbox');
-    const lightboxImg = document.getElementById('lightboxImg');
-    lightboxImg.src = document.getElementById('menuImg').src;
     lightbox.style.display = 'flex';
+    document.getElementById('lightboxImg').src = document.getElementById('menuImg').src;
   }
 
   function closeLightbox() {
@@ -409,7 +517,7 @@
     let text = `【${shopName} 叫餐清單】\n`;
     
     orders.forEach((o, index) => {
-      text += `${index + 1}. ${o.userName}: ${o.itemName} ${o.options ? '(' + o.options + ')' : ''} - $${o.price}\n`;
+      text += `${index + 1}. ${o.user_name}: ${o.item_name} ${o.options ? '(' + o.options + ')' : ''} - $${o.price}\n`;
     });
     
     const totalAmount = orders.reduce((sum, o) => sum + o.price, 0);
@@ -427,7 +535,7 @@
     }
     let csv = '\uFEFF姓名,品項,金額,備註,付款狀態\n';
     orders.forEach(o => {
-      csv += `"${o.userName}","${o.itemName}",${o.price},"${o.options || ''}","${o.isPaid ? '已付款' : '未付款'}"\n`;
+      csv += `"${o.user_name}","${o.item_name}",${o.price},"${o.options || ''}","${o.is_paid ? '已付款' : '未付款'}"\n`;
     });
 
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
