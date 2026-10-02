@@ -75,7 +75,6 @@
     .form-group label { display: block; font-size: 0.85rem; font-weight: 600; margin-bottom: 6px; }
     .form-control { width: 100%; padding: 8px 12px; border: 1px solid var(--border); border-radius: var(--radius); font-size: 0.9rem; }
     .form-control:focus { outline: none; border-color: var(--primary); }
-    .form-row { display: grid; grid-template-columns: 2fr 1fr; gap: 10px; }
     .form-row-3 { display: grid; grid-template-columns: 2fr 1fr 1fr; gap: 10px; }
 
     .order-list { list-style: none; display: flex; flex-direction: column; gap: 8px; max-height: 460px; overflow-y: auto; }
@@ -88,7 +87,7 @@
     .badge-unpaid { background: var(--danger-light); color: var(--danger); border: 1px solid #fecaca; border-radius: 4px; padding: 2px 6px; font-size: 0.75rem; cursor: pointer; }
 
     .summary-box { background: #f8fafc; border: 1px solid var(--border); border-radius: var(--radius); padding: 12px; margin-top: 14px; }
-    .summary-item { display: flex; justify-content: space-between; font-size: 0.88rem; padding: 4px 0; border-bottom: 1px dashed var(--border); }
+    .summary-item { font-size: 0.88rem; padding: 8px 0; border-bottom: 1px dashed var(--border); }
     .summary-item:last-child { border-bottom: none; }
 
     /* 表單底部即時預覽總計 */
@@ -117,7 +116,7 @@
   </header>
 
   <div id="lockBanner" class="banner-locked">
-    <span>⚠️️ 主揪已結單，目前停止接收新點單與修改。</span>
+    <span>⚠ 主揪已結單，目前停止接收新點單與修改。</span>
     <button class="btn btn-sm btn-outline" onclick="toggleLock()">解除鎖定</button>
   </div>
 
@@ -319,7 +318,6 @@
     const options = document.getElementById('options').value.trim();
 
     const newOrder = {
-      id: Date.now(),
       user_name: userName,
       item_name: itemName,
       price: price,
@@ -387,18 +385,32 @@
     const summaryMap = {};
     orders.forEach(o => {
       const qty = o.quantity || 1;
-      const key = `${o.item_name}_${o.options || '無'}`;
+      // 包含品項名稱、單價與備註作為 Key，確保「相同品項但不同單價」會分開統計
+      const key = `${o.item_name}_${o.price}_${o.options || '無'}`;
       if (!summaryMap[key]) {
-        summaryMap[key] = { itemName: o.item_name, options: o.options, count: 0, totalPrice: 0 };
+        summaryMap[key] = { 
+          itemName: o.item_name, 
+          price: o.price,
+          options: o.options, 
+          count: 0, 
+          totalPrice: 0,
+          details: [] 
+        };
       }
       summaryMap[key].count += qty;
       summaryMap[key].totalPrice += (o.price * qty);
+      summaryMap[key].details.push(`${o.user_name} (${qty}份)`);
     });
 
     summaryEl.innerHTML = Object.values(summaryMap).map(s => `
       <div class="summary-item">
-        <div><strong>${s.itemName}</strong> ${s.options ? `<span style="color: var(--text-muted); font-size: 0.8rem;">(${s.options})</span>` : ''}</div>
-        <div><strong>x ${s.count}</strong> 份 ($${s.totalPrice})</div>
+        <div style="display: flex; justify-content: space-between; margin-bottom: 4px;">
+          <div><strong>${s.itemName}</strong> <span style="color: var(--text-muted); font-size: 0.8rem;">($${s.price}${s.options ? ' / ' + s.options : ''})</span></div>
+          <div><strong style="color: var(--primary);">x ${s.count} 份</strong> ($${s.totalPrice})</div>
+        </div>
+        <div style="font-size: 0.8rem; color: var(--text-muted); background: #fff; padding: 4px 8px; border-radius: 4px; border: 1px solid var(--border);">
+          點餐者：${s.details.join(', ')}
+        </div>
       </div>
     `).join('');
   }
