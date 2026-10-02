@@ -258,7 +258,6 @@
   }
 
   function setupRealtimeSubscription() {
-    // 監聽 orders 與 app_settings 兩張表的即時變更
     _supabase
       .channel('public:all_changes')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'orders' }, payload => {
