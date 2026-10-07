@@ -165,7 +165,7 @@
         </div>
         
         <div id="uploadBox" class="menu-uploader" onclick="document.getElementById('menuInput').click()">
-          <p>📷 點擊上傳菜單圖片</p>
+          <p>📷 點擊上傳菜單圖片 (同步雲端)</p>
           <span style="font-size: 0.75rem; color: var(--text-muted);">支援 JPG、PNG</span>
           <input type="file" id="menuInput" accept="image/*" style="display:none;" onchange="handleImageUpload(event)">
         </div>
@@ -248,19 +248,15 @@
 
   let orders = [];
   let isLocked = JSON.parse(localStorage.getItem('office_locked') || 'false');
-  let savedMenuImg = localStorage.getItem('office_menu_img') || '';
 
   // 初始化日期
   const optionsDate = { year: 'numeric', month: 'long', day: 'numeric', weekday: 'long' };
   document.getElementById('todayDate').innerText = new Date().toLocaleDateString('zh-TW', optionsDate);
 
-  if (savedMenuImg) {
-    showMenuImage(savedMenuImg);
-  }
-
   // 初始化載入資料與即時監聽
   fetchOrders();
   fetchSharedUrl();
+  fetchMenuImage();
   setupRealtimeSubscription();
   calculateFormSubtotal();
 
@@ -288,9 +284,13 @@
       .on('postgres_changes', { event: '*', schema: 'public', table: 'orders' }, payload => {
         fetchOrders();
       })
-      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'app_settings' }, payload => {
-        if (payload.new && payload.new.key === 'shared_url') {
-          updateSharedUrlDisplay(payload.new.value);
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'app_settings' }, payload => {
+        if (payload.new) {
+          if (payload.new.key === 'shared_url') {
+            updateSharedUrlDisplay(payload.new.value);
+          } else if (payload.new.key === 'menu_img_url') {
+            showMenuImage(payload.new.value);
+          }
         }
       })
       .subscribe();
@@ -333,7 +333,6 @@
       document.getElementById('orderForm').reset();
       document.getElementById('quantity').value = '1';
       calculateFormSubtotal();
-      // 立即主動重新抓取與渲染，確保畫面自動更新
       fetchOrders();
     }
   }
@@ -393,7 +392,6 @@
     const summaryMap = {};
     orders.forEach(o => {
       const qty = o.quantity || 1;
-      // 包含品項名稱、單價與備註作為 Key，確保「相同品項但不同單價」會分開統計
       const key = `${o.item_name}_${o.price}_${o.options || '無'}`;
       if (!summaryMap[key]) {
         summaryMap[key] = { 
@@ -466,7 +464,6 @@
       for (let o of orders) {
         await _supabase.from('orders').delete().eq('id', o.id);
       }
-      // 清空後立即主動重新抓取，確保畫面自動更新
       fetchOrders();
     }
   }
@@ -524,17 +521,55 @@
     }
   }
 
-  // ===== 菜單圖片與其他工具 =====
-  function handleImageUpload(e) {
+  // =====  Supabase Storage 菜單圖片上傳與同步 =====
+  async function fetchMenuImage() {
+    const { data, error } = await _supabase
+      .from('app_settings')
+      .select('value')
+      .eq('key', 'menu_img_url')
+      .single();
+
+    if (!error && data && data.value) {
+      showMenuImage(data.value);
+    }
+  }
+
+  async function handleImageUpload(e) {
     const file = e.target.files[0];
-    if (file) {
-      const reader = new FileReader();
-      reader.onload = function(event) {
-        savedMenuImg = event.target.result;
-        localStorage.setItem('office_menu_img', savedMenuImg);
-        showMenuImage(savedMenuImg);
-      };
-      reader.readAsDataURL(file);
+    if (!file) return;
+
+    // 產生獨一無二的檔名避免覆蓋
+    const fileExt = file.name.split('.').pop();
+    const fileName = `${Date.now()}_${Math.random().toString(36.substring(2, 7))}.${fileExt}`;
+    const filePath = `menus/${fileName}`;
+
+    // 1. 上傳檔案到 Supabase Storage 的 menus bucket
+    const { data: uploadData, error: uploadError } = await _supabase.storage
+      .from('menus')
+      .upload(filePath, file);
+
+    if (uploadError) {
+      alert('上傳圖片失敗: ' + uploadError.message);
+      return;
+    }
+
+    // 2. 取得該圖片的公開 URL
+    const { data: publicUrlData } = _supabase.storage
+      .from('menus')
+      .getPublicUrl(filePath);
+
+    const publicUrl = publicUrlData.publicUrl;
+
+    // 3. 將圖片 URL 存入 app_settings 資料表，讓其他人透過 Realtime 同步
+    const { error: dbError } = await _supabase
+      .from('app_settings')
+      .update({ value: publicUrl })
+      .eq('key', 'menu_img_url');
+
+    if (dbError) {
+      alert('儲存圖片網址到資料庫失敗: ' + dbError.message);
+    } else {
+      alert('菜單圖片已成功上傳並同步給所有人！');
     }
   }
 
@@ -545,13 +580,20 @@
     document.getElementById('removeImgBtn').style.display = 'inline-flex';
   }
 
-  function removeMenuImage() {
-    savedMenuImg = '';
-    localStorage.removeItem('office_menu_img');
-    document.getElementById('previewBox').style.display = 'none';
-    document.getElementById('uploadBox').style.display = 'block';
-    document.getElementById('removeImgBtn').style.display = 'none';
-    document.getElementById('menuInput').value = '';
+  async function removeMenuImage() {
+    if (!confirm('確定要移除菜單圖片嗎？')) return;
+
+    const { error } = await _supabase
+      .from('app_settings')
+      .update({ value: '' })
+      .eq('key', 'menu_img_url');
+
+    if (!error) {
+      document.getElementById('previewBox').style.display = 'none';
+      document.getElementById('uploadBox').style.display = 'block';
+      document.getElementById('removeImgBtn').style.display = 'none';
+      document.getElementById('menuInput').value = '';
+    }
   }
 
   function openLightbox() {
