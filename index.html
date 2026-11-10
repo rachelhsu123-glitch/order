@@ -21,6 +21,8 @@
       --danger-light: #fee2e2;
       --success: #16a34a;
       --success-light: #dcfce7;
+      --warning: #d97706;
+      --warning-light: #fef3c7;
       --radius: 8px;
     }
 
@@ -29,14 +31,21 @@
     .container { max-width: 960px; margin: 0 auto; padding: 16px; }
 
     header { display: flex; justify-content: space-between; align-items: center; background: #fff; padding: 14px 20px; border-radius: var(--radius); border: 1px solid var(--border); margin-bottom: 16px; flex-wrap: wrap; gap: 12px; }
-    .title-group h1 { font-size: 1.25rem; font-weight: 700; color: var(--text); }
+    .title-group h1 { font-size: 1.25rem; font-weight: 700; color: var(--text); display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
     .title-group p { font-size: 0.85rem; color: var(--text-muted); }
     .header-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+
+    /* 店名可編輯輸入框樣式 */
+    .shop-name-input { font-size: 1.1rem; font-weight: 600; padding: 4px 8px; border: 1px dashed var(--border); border-radius: 4px; background: #f8fafc; color: var(--primary); outline: none; transition: all 0.2s; min-width: 180px; }
+    .shop-name-input:focus { border-color: var(--primary); background: #fff; border-style: solid; }
 
     .btn { display: inline-flex; align-items: center; justify-content: center; gap: 4px; padding: 8px 14px; font-size: 0.85rem; font-weight: 600; border-radius: var(--radius); border: 1px solid transparent; cursor: pointer; transition: all 0.15s; background: var(--card-bg); color: var(--text); }
     .btn:hover { background: #f1f5f9; }
     .btn-primary { background: var(--primary); color: #fff; }
     .btn-primary:hover { background: var(--primary-hover); }
+    .btn-success { background: var(--success); color: #fff; }
+    .btn-success:hover { background: #15803d; }
+    .btn-warning { background: var(--warning); color: #fff; }
     .btn-outline { border-color: var(--border); }
     .btn-danger { background: var(--danger); color: #fff; }
     .btn-sm { padding: 4px 8px; font-size: 0.75rem; }
@@ -77,6 +86,11 @@
     .form-control:focus { outline: none; border-color: var(--primary); }
     .form-row-3 { display: grid; grid-template-columns: 2fr 1fr 1fr; gap: 10px; }
 
+    /* 購物車暫存列表樣式 */
+    .cart-box { background: #f8fafc; border: 1px solid var(--border); border-radius: var(--radius); padding: 10px; margin-bottom: 12px; }
+    .cart-item { display: flex; justify-content: space-between; align-items: center; font-size: 0.85rem; padding: 6px 8px; background: #fff; border: 1px solid var(--border); border-radius: 4px; margin-bottom: 6px; }
+    .cart-item:last-child { margin-bottom: 0; }
+
     .order-list { list-style: none; display: flex; flex-direction: column; gap: 8px; max-height: 460px; overflow-y: auto; }
     .order-item { display: flex; justify-content: space-between; align-items: center; padding: 10px 14px; background: #fff; border: 1px solid var(--border); border-radius: var(--radius); }
     .order-item .user { font-weight: 600; }
@@ -90,10 +104,6 @@
     .summary-item { font-size: 0.88rem; padding: 8px 0; border-bottom: 1px dashed var(--border); }
     .summary-item:last-child { border-bottom: none; }
 
-    /* 表單底部即時預覽總計 */
-    .form-live-summary { background: #f1f5f9; border: 1px solid var(--border); border-radius: var(--radius); padding: 10px 12px; margin-bottom: 12px; font-size: 0.85rem; display: flex; justify-content: space-between; align-items: center; color: var(--text-muted); }
-    .form-live-summary span strong { color: var(--primary); }
-
     /* 燈箱大圖 */
     .lightbox { display: none; position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(0,0,0,0.8); z-index: 999; justify-content: center; align-items: center; padding: 20px; }
     .lightbox img { max-width: 95%; max-height: 95%; object-fit: contain; }
@@ -104,7 +114,10 @@
 <div class="container">
   <header>
     <div class="title-group">
-      <h1 id="shopTitle" contenteditable="true" title="點擊可修改店家名稱">開團囉 (即時連動版)</h1>
+      <h1>
+        <span>開團囉 -</span>
+        <input type="text" id="shopNameInput" class="shop-name-input" placeholder="請輸入本次店名..." oninput="updateShopName(this.value)">
+      </h1>
       <p id="todayDate"></p>
     </div>
     <div class="header-actions">
@@ -140,9 +153,8 @@
   </div>
 
   <div class="layout-grid">
-    <!-- 左側：菜單上傳、網址上傳與點餐 -->
+    <!-- 左側：菜單上傳、網址上傳與多品項點餐 -->
     <div>
-      <!-- 獨立網址上傳欄位 (即時同步) -->
       <div class="card">
         <div class="card-title">🔗 共用網址設定</div>
         <div class="form-group" style="margin-bottom: 0;">
@@ -178,40 +190,48 @@
         </div>
       </div>
 
+      <!-- 多品項購物車式點餐表單 -->
       <div class="card">
-        <div class="card-title">📝 我要點餐</div>
-        <form id="orderForm" onsubmit="addOrder(event)">
+        <div class="card-title" id="formTitle">📝 我要點餐 (支援多品項)</div>
+        <input type="hidden" id="editOrderId" value="">
+        
+        <div class="form-group">
+          <label>同事暱稱</label>
+          <input type="text" id="userName" class="form-control" placeholder="請輸入姓名/暱稱" required>
+        </div>
+        
+        <div class="form-row-3">
           <div class="form-group">
-            <label>同事暱稱</label>
-            <input type="text" id="userName" class="form-control" placeholder="請輸入姓名/暱稱" required>
-          </div>
-          <div class="form-row-3">
-            <div class="form-group">
-              <label>餐點品項</label>
-              <input type="text" id="itemName" class="form-control" placeholder="例如：排骨便當" required>
-            </div>
-            <div class="form-group">
-              <label>單價 ($)</label>
-              <input type="number" id="price" class="form-control" placeholder="100" min="0" required oninput="calculateFormSubtotal()">
-            </div>
-            <div class="form-group">
-              <label>數量</label>
-              <input type="number" id="quantity" class="form-control" value="1" min="1" required oninput="calculateFormSubtotal()">
-            </div>
+            <label>餐點品項</label>
+            <input type="text" id="itemName" class="form-control" placeholder="例如：排骨便當">
           </div>
           <div class="form-group">
-            <label>備註需求</label>
-            <input type="text" id="options" class="form-control" placeholder="例如：微辣、飯少、不加香菜">
+            <label>單價 ($)</label>
+            <input type="number" id="price" class="form-control" placeholder="100" min="0">
           </div>
-
-          <!-- 表單底下即時品項與數量彙整 -->
-          <div class="form-live-summary">
-            <span>本筆小計：<strong id="formSubtotal">$0</strong></span>
-            <span>總份數：<strong id="formSubtotalCount">1</strong> 份</span>
+          <div class="form-group">
+            <label>數量</label>
+            <input type="number" id="quantity" class="form-control" value="1" min="1">
           </div>
+        </div>
+        <div class="form-group">
+          <label>備註需求</label>
+          <input type="text" id="options" class="form-control" placeholder="例如：微辣、飯少、不加香菜">
+        </div>
 
-          <button type="submit" id="submitBtn" class="btn btn-primary" style="width: 100%;">+ 送出訂單</button>
-        </form>
+        <!-- 暫存購物車清單區塊 -->
+        <div id="cartSection" style="margin-bottom: 12px;">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
+            <span style="font-size: 0.85rem; font-weight: 600; color: var(--text-muted);">本筆暫存清單：</span>
+            <button type="button" class="btn btn-sm btn-outline" onclick="addToCart()" style="font-size: 0.75rem;">➕ 加入一項</button>
+          </div>
+          <div id="cartContainer" class="cart-box">
+            <div style="text-align: center; color: var(--text-muted); font-size: 0.8rem; padding: 6px;">尚未加入任何品項</div>
+          </div>
+        </div>
+
+        <button type="button" id="submitBtn" class="btn btn-primary" style="width: 100%;" onclick="submitAllOrders()">🚀 確認送出全部訂單</button>
+        <button type="button" id="cancelEditBtn" class="btn btn-outline" style="width: 100%; margin-top: 6px; display: none;" onclick="cancelEditMode()">取消修改</button>
       </div>
     </div>
 
@@ -219,13 +239,13 @@
     <div>
       <div class="card">
         <div class="card-title">
-          <span>📋 即時點餐清單 (多人同步)</span>
+          <span>📋 即時點餐清單</span>
         </div>
         <ul id="orderList" class="order-list"></ul>
       </div>
 
       <div class="card">
-        <div class="card-title">📞 主揪叫餐彙總 (打電話用)</div>
+        <div class="card-title">📞 叫餐彙總</div>
         <div id="summaryList" class="summary-box">
           <div style="text-align: center; color: var(--text-muted); font-size: 0.85rem;">尚無訂單彙總</div>
         </div>
@@ -239,15 +259,18 @@
 </div>
 
 <script>
-  // ===== Supabase 連線設定 =====
+  // ===== Supabase 連線設定與主揪密碼設定 =====
   const SUPABASE_URL = 'https://empupkopcyczxlevmudm.supabase.co';
   const SUPABASE_ANON_KEY = 'sb_publishable_1-LJ4UZT9wdfZW-9_P8csw_gGEXvhI8';
+  const HOST_PASSWORD = '31947'; // 🔑 主揪專用密碼
 
   const { createClient } = supabase;
   const _supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
   let orders = [];
+  let cart = []; // 暫存多品項購物車
   let isLocked = JSON.parse(localStorage.getItem('office_locked') || 'false');
+  let isUpdatingShopName = false;
 
   // 初始化日期
   const optionsDate = { year: 'numeric', month: 'long', day: 'numeric', weekday: 'long' };
@@ -257,16 +280,90 @@
   fetchOrders();
   fetchSharedUrl();
   fetchMenuImage();
+  fetchShopName();
   setupRealtimeSubscription();
-  calculateFormSubtotal();
 
-  // ===== 表單即時小計計算 =====
-  function calculateFormSubtotal() {
-    const price = parseInt(document.getElementById('price').value) || 0;
+  // ===== 主揪權限驗證小幫手 =====
+  function verifyHost() {
+    const pwd = prompt('🔒 此動作僅限主揪執行，請輸入主揪密碼：');
+    if (pwd === null) return false;
+    if (pwd === HOST_PASSWORD) {
+      return true;
+    } else {
+      alert('❌ 密碼錯誤，您沒有主揪權限！');
+      return false;
+    }
+  }
+
+  // ===== 店名即時同步邏輯 =====
+  async function fetchShopName() {
+    const { data, error } = await _supabase
+      .from('app_settings')
+      .select('value')
+      .eq('key', 'shop_name')
+      .single();
+
+    if (!error && data) {
+      isUpdatingShopName = true;
+      document.getElementById('shopNameInput').value = data.value || '';
+      isUpdatingShopName = false;
+    }
+  }
+
+  async function updateShopName(name) {
+    if (isUpdatingShopName) return;
+    
+    await _supabase
+      .from('app_settings')
+      .update({ value: name })
+      .eq('key', 'shop_name');
+  }
+
+  // ===== 多品項購物車邏輯 =====
+  function addToCart() {
+    const itemName = document.getElementById('itemName').value.trim();
+    const price = parseInt(document.getElementById('price').value);
     const quantity = parseInt(document.getElementById('quantity').value) || 1;
-    const subtotal = price * quantity;
-    document.getElementById('formSubtotal').innerText = `$${subtotal}`;
-    document.getElementById('formSubtotalCount').innerText = quantity;
+    const options = document.getElementById('options').value.trim();
+
+    if (!itemName || isNaN(price) || price < 0) {
+      alert('請填寫完整的「餐點品項」與正確的「單價」！');
+      return;
+    }
+
+    cart.push({
+      item_name: itemName,
+      price: price,
+      quantity: quantity,
+      options: options
+    });
+
+    document.getElementById('itemName').value = '';
+    document.getElementById('price').value = '';
+    document.getElementById('quantity').value = '1';
+    document.getElementById('options').value = '';
+
+    renderCart();
+  }
+
+  function removeFromCart(index) {
+    cart.splice(index, 1);
+    renderCart();
+  }
+
+  function renderCart() {
+    const container = document.getElementById('cartContainer');
+    if (cart.length === 0) {
+      container.innerHTML = `<div style="text-align: center; color: var(--text-muted); font-size: 0.8rem; padding: 6px;">尚未加入任何品項</div>`;
+      return;
+    }
+
+    container.innerHTML = cart.map((c, idx) => `
+      <div class="cart-item">
+        <div><strong>${c.item_name}</strong> ($${c.price} x ${c.quantity}) ${c.options ? '(' + c.options + ')' : ''}</div>
+        <button type="button" class="btn btn-sm btn-outline" style="color: var(--danger); border-color: #fecaca; padding: 2px 6px;" onclick="removeFromCart(${idx})">刪除</button>
+      </div>
+    `).join('');
   }
 
   // ===== 訂單相關邏輯 =====
@@ -290,6 +387,10 @@
             updateSharedUrlDisplay(payload.new.value);
           } else if (payload.new.key === 'menu_img_url') {
             showMenuImage(payload.new.value);
+          } else if (payload.new.key === 'shop_name') {
+            isUpdatingShopName = true;
+            document.getElementById('shopNameInput').value = payload.new.value || '';
+            isUpdatingShopName = false;
           }
         }
       })
@@ -304,37 +405,132 @@
     localStorage.setItem('office_locked', JSON.stringify(isLocked));
   }
 
-  async function addOrder(e) {
-    e.preventDefault();
+  async function submitAllOrders() {
     if (isLocked) {
       alert('主揪已結單，無法再新增或修改訂單！');
       return;
     }
 
     const userName = document.getElementById('userName').value.trim();
-    const itemName = document.getElementById('itemName').value.trim();
-    const price = parseInt(document.getElementById('price').value) || 0;
-    const quantity = parseInt(document.getElementById('quantity').value) || 1;
-    const options = document.getElementById('options').value.trim();
+    if (!userName) {
+      alert('請先填寫「同事暱稱」！');
+      return;
+    }
 
-    const newOrder = {
+    const editId = document.getElementById('editOrderId').value;
+
+    if (editId) {
+      const itemName = document.getElementById('itemName').value.trim();
+      const price = parseInt(document.getElementById('price').value);
+      const quantity = parseInt(document.getElementById('quantity').value) || 1;
+      const options = document.getElementById('options').value.trim();
+
+      if (!itemName || isNaN(price) || price < 0) {
+        alert('請完整填寫品項與單價！');
+        return;
+      }
+
+      const { error } = await _supabase.from('orders').update({
+        user_name: userName,
+        item_name: itemName,
+        price: price,
+        quantity: quantity,
+        options: options
+      }).eq('id', editId);
+
+      if (error) {
+        alert('更新訂單失敗: ' + error.message);
+      } else {
+        alert('訂單已成功更新！');
+        cancelEditMode();
+        fetchOrders();
+      }
+      return;
+    }
+
+    let itemsToSubmit = [...cart];
+    
+    const currentItem = document.getElementById('itemName').value.trim();
+    const currentPrice = parseInt(document.getElementById('price').value);
+    const currentQty = parseInt(document.getElementById('quantity').value) || 1;
+    const currentOpt = document.getElementById('options').value.trim();
+
+    if (itemsToSubmit.length === 0 && currentItem) {
+      if (isNaN(currentPrice) || currentPrice < 0) {
+        alert('請填寫正確的單價！');
+        return;
+      }
+      itemsToSubmit.push({
+        item_name: currentItem,
+        price: currentPrice,
+        quantity: currentQty,
+        options: currentOpt
+      });
+    }
+
+    if (itemsToSubmit.length === 0) {
+      alert('請至少加入一項餐點品項到暫存清單，或直接填寫下方欄位！');
+      return;
+    }
+
+    const rowsToInsert = itemsToSubmit.map(item => ({
       user_name: userName,
-      item_name: itemName,
-      price: price,
-      quantity: quantity,
-      options: options,
+      item_name: item.item_name,
+      price: item.price,
+      quantity: item.quantity,
+      options: item.options,
       is_paid: false
-    };
+    }));
 
-    const { error } = await _supabase.from('orders').insert([newOrder]);
+    const { error } = await _supabase.from('orders').insert(rowsToInsert);
     if (error) {
       alert('送出訂單失敗: ' + error.message);
     } else {
-      document.getElementById('orderForm').reset();
+      cart = [];
+      renderCart();
+      document.getElementById('itemName').value = '';
+      document.getElementById('price').value = '';
       document.getElementById('quantity').value = '1';
-      calculateFormSubtotal();
+      document.getElementById('options').value = '';
       fetchOrders();
+      alert('訂單已成功送出！');
     }
+  }
+
+  function editOrder(id, userName, itemName, price, quantity, options) {
+    if (isLocked) {
+      alert('主揪已結單，無法修改訂單！');
+      return;
+    }
+
+    document.getElementById('editOrderId').value = id;
+    document.getElementById('userName').value = userName;
+    document.getElementById('itemName').value = itemName;
+    document.getElementById('price').value = price;
+    document.getElementById('quantity').value = quantity;
+    document.getElementById('options').value = options;
+
+    document.getElementById('formTitle').innerText = '✏️ 修改訂單項目';
+    document.getElementById('submitBtn').innerText = '💾 儲存修改';
+    document.getElementById('submitBtn').className = 'btn btn-success';
+    document.getElementById('cancelEditBtn').style.display = 'block';
+    document.getElementById('cartSection').style.display = 'none';
+
+    window.scrollTo({ top: 500, behavior: 'smooth' });
+  }
+
+  function cancelEditMode() {
+    document.getElementById('editOrderId').value = '';
+    document.getElementById('itemName').value = '';
+    document.getElementById('price').value = '';
+    document.getElementById('quantity').value = '1';
+    document.getElementById('options').value = '';
+
+    document.getElementById('formTitle').innerText = '📝 我要點餐 (支援多品項)';
+    document.getElementById('submitBtn').innerText = '🚀 確認送出全部訂單';
+    document.getElementById('submitBtn').className = 'btn btn-primary';
+    document.getElementById('cancelEditBtn').style.display = 'none';
+    document.getElementById('cartSection').style.display = 'block';
   }
 
   async function deleteOrder(id) {
@@ -349,6 +545,8 @@
   }
 
   async function togglePaid(id, currentStatus) {
+    if (!verifyHost()) return;
+
     const { error } = await _supabase.from('orders').update({ is_paid: !currentStatus }).eq('id', id);
     if (!error) {
       fetchOrders();
@@ -372,10 +570,13 @@
           <div class="note">${o.item_name} ${o.options ? ' (' + o.options + ')' : ''}</div>
         </div>
         <div style="display: flex; gap: 6px; align-items: center;">
-          <span class="${o.is_paid ? 'badge-paid' : 'badge-unpaid'}" onclick="togglePaid(${o.id}, ${o.is_paid})" title="點擊切換付款狀態">
+          <span class="${o.is_paid ? 'badge-paid' : 'badge-unpaid'}" onclick="togglePaid(${o.id}, ${o.is_paid})" title="點擊切換付款狀態 (需主揪權限)">
             ${o.is_paid ? '已付款' : '未付款'}
           </span>
-          ${!isLocked ? `<button class="btn btn-sm btn-outline" style="color: var(--danger); border-color: #fecaca;" onclick="deleteOrder(${o.id})">刪</button>` : ''}
+          ${!isLocked ? `
+            <button class="btn btn-sm btn-outline" style="color: var(--warning); border-color: #fde68a;" onclick="editOrder(${o.id}, '${o.user_name}', '${o.item_name}', ${o.price}, ${qty}, '${o.options || ''}')">改</button>
+            <button class="btn btn-sm btn-outline" style="color: var(--danger); border-color: #fecaca;" onclick="deleteOrder(${o.id})">刪</button>
+          ` : ''}
         </div>
       </li>
     `;
@@ -434,6 +635,8 @@
   }
 
   function toggleLock() {
+    if (!verifyHost()) return;
+
     isLocked = !isLocked;
     updateUI();
   }
@@ -454,12 +657,14 @@
       lockBanner.style.display = 'none';
       submitBtn.disabled = false;
       submitBtn.style.opacity = '1';
-      submitBtn.innerText = '+ 送出訂單';
+      submitBtn.innerText = '🚀 確認送出全部訂單';
     }
     renderOrders();
   }
 
   async function clearAllOrders() {
+    if (!verifyHost()) return;
+
     if (confirm('確定要清空所有訂單嗎？')) {
       for (let o of orders) {
         await _supabase.from('orders').delete().eq('id', o.id);
@@ -521,7 +726,7 @@
     }
   }
 
-  // =====  Supabase Storage 菜單圖片上傳與同步 =====
+  // ===== Supabase Storage 菜單圖片上傳與同步 =====
   async function fetchMenuImage() {
     const { data, error } = await _supabase
       .from('app_settings')
@@ -538,12 +743,10 @@
     const file = e.target.files[0];
     if (!file) return;
 
-    // 產生獨一無二的檔名避免覆蓋
     const fileExt = file.name.split('.').pop();
     const fileName = `${Date.now()}_${Math.random().toString(36).substring(2, 7)}.${fileExt}`;
     const filePath = `menus/${fileName}`;
 
-    // 1. 上傳檔案到 Supabase Storage 的 menus bucket
     const { data: uploadData, error: uploadError } = await _supabase.storage
       .from('menus')
       .upload(filePath, file);
@@ -553,14 +756,12 @@
       return;
     }
 
-    // 2. 取得該圖片的公開 URL
     const { data: publicUrlData } = _supabase.storage
       .from('menus')
       .getPublicUrl(filePath);
 
     const publicUrl = publicUrlData.publicUrl;
 
-    // 3. 將圖片 URL 存入 app_settings 資料表，讓其他人透過 Realtime 同步
     const { error: dbError } = await _supabase
       .from('app_settings')
       .update({ value: publicUrl })
@@ -581,6 +782,8 @@
   }
 
   async function removeMenuImage() {
+    if (!verifyHost()) return;
+
     if (!confirm('確定要移除菜單圖片嗎？')) return;
 
     const { error } = await _supabase
@@ -611,8 +814,8 @@
       alert('目前沒有訂單可以複製！');
       return;
     }
-    const shopName = document.getElementById('shopTitle').innerText;
-    let text = `【${shopName} 叫餐清單】\n`;
+    const shopName = document.getElementById('shopNameInput').value.trim() || '團購';
+    let text = `【${shopName} - 開團囉 叫餐清單】\n`;
     
     orders.forEach((o, index) => {
       const qty = o.quantity || 1;
@@ -628,22 +831,61 @@
     });
   }
 
+  // ===== 匯出包含「叫餐彙總」與「詳細清單」的 CSV =====
   function exportCSV() {
     if (orders.length === 0) {
       alert('目前沒有資料可以匯出！');
       return;
     }
-    let csv = '\uFEFF姓名,品項,單價,數量,小計,備註,付款狀態\n';
+
+    const shopName = document.getElementById('shopNameInput').value.trim() || '團購';
+    let csv = '\uFEFF'; // UTF-8 BOM 避免 Excel 亂碼
+
+    // 1. 區段一：叫餐彙總 (打電話用)
+    csv += '【主揪叫餐彙總】\n';
+    csv += '品項,單價,備註需求,總份數,小計金額,點餐人員與數量\n';
+
+    const summaryMap = {};
+    orders.forEach(o => {
+      const qty = o.quantity || 1;
+      const key = `${o.item_name}_${o.price}_${o.options || '無'}`;
+      if (!summaryMap[key]) {
+        summaryMap[key] = { 
+          itemName: o.item_name, 
+          price: o.price,
+          options: o.options || '', 
+          count: 0, 
+          totalPrice: 0,
+          details: [] 
+        };
+      }
+      summaryMap[key].count += qty;
+      summaryMap[key].totalPrice += (o.price * qty);
+      summaryMap[key].details.push(`${o.user_name} (${qty}份)`);
+    });
+
+    Object.values(summaryMap).forEach(s => {
+      csv += `"${s.itemName}",${s.price},"${s.options}",${s.count},${s.totalPrice},"${s.details.join(', ')}"\n`;
+    });
+
+    const totalAmount = orders.reduce((sum, o) => sum + (o.price * (o.quantity || 1)), 0);
+    const totalCount = orders.reduce((sum, o) => sum + (o.quantity || 1), 0);
+    csv += `"總計",,,${totalCount},${totalAmount},\n\n`;
+
+    // 2. 區段二：個人詳細點餐清單
+    csv += '【個人詳細點餐清單】\n';
+    csv += '姓名,品項,單價,數量,小計,備註,付款狀態\n';
     orders.forEach(o => {
       const qty = o.quantity || 1;
       csv += `"${o.user_name}","${o.item_name}",${o.price},${qty},${o.price * qty},"${o.options || ''}","${o.is_paid ? '已付款' : '未付款'}"\n`;
     });
 
+    // 觸發下載
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `開團囉_團購清單_${new Date().toISOString().slice(0,10)}.csv`;
+    a.download = `${shopName}_開團囉_完整報表_${new Date().toISOString().slice(0,10)}.csv`;
     a.click();
     URL.revokeObjectURL(url);
   }
