@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>辦公室點餐小幫手 (即時連動版)</title>
+  <title>開團囉 - 辦公室點餐小幫手</title>
   <!-- 網頁圖標設定 -->
   <link rel="icon" type="image/png" href="可愛點餐介面貼圖.png">
   <!-- 引入 Supabase JS SDK -->
@@ -104,7 +104,7 @@
 <div class="container">
   <header>
     <div class="title-group">
-      <h1 id="shopTitle" contenteditable="true" title="點擊可修改店家名稱">今日午餐團購 (即時連動版)</h1>
+      <h1 id="shopTitle" contenteditable="true" title="點擊可修改店家名稱">開團囉 (即時連動版)</h1>
       <p id="todayDate"></p>
     </div>
     <div class="header-actions">
@@ -540,7 +540,7 @@
 
     // 產生獨一無二的檔名避免覆蓋
     const fileExt = file.name.split('.').pop();
-    const fileName = `${Date.now()}_${Math.random().toString(36.substring(2, 7))}.${fileExt}`;
+    const fileName = `${Date.now()}_${Math.random().toString(36).substring(2, 7)}.${fileExt}`;
     const filePath = `menus/${fileName}`;
 
     // 1. 上傳檔案到 Supabase Storage 的 menus bucket
@@ -549,7 +549,7 @@
       .upload(filePath, file);
 
     if (uploadError) {
-      alert('上傳圖片失敗: ' + uploadError.message);
+      alert('上傳圖片失敗 (請確認 Supabase Storage Policy 是否已允許公開上傳): ' + uploadError.message);
       return;
     }
 
@@ -643,7 +643,7 @@
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `午餐團購清單_${new Date().toISOString().slice(0,10)}.csv`;
+    a.download = `開團囉_團購清單_${new Date().toISOString().slice(0,10)}.csv`;
     a.click();
     URL.revokeObjectURL(url);
   }
