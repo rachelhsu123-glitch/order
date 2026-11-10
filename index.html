@@ -239,13 +239,13 @@
     <div>
       <div class="card">
         <div class="card-title">
-          <span>📋 即時點餐清單</span>
+          <span>📋 即時點餐清單 (多人同步)</span>
         </div>
         <ul id="orderList" class="order-list"></ul>
       </div>
 
       <div class="card">
-        <div class="card-title">📞 叫餐彙總</div>
+        <div class="card-title">📞 主揪叫餐彙總 (打電話用)</div>
         <div id="summaryList" class="summary-box">
           <div style="text-align: center; color: var(--text-muted); font-size: 0.85rem;">尚無訂單彙總</div>
         </div>
@@ -269,8 +269,9 @@
 
   let orders = [];
   let cart = []; // 暫存多品項購物車
-  let isLocked = JSON.parse(localStorage.getItem('office_locked') || 'false');
+  let isLocked = false;
   let isUpdatingShopName = false;
+  let isHostAuthenticated = false; // 記錄本次瀏覽是否已驗證過主揪身分
 
   // 初始化日期
   const optionsDate = { year: 'numeric', month: 'long', day: 'numeric', weekday: 'long' };
@@ -281,17 +282,53 @@
   fetchSharedUrl();
   fetchMenuImage();
   fetchShopName();
+  fetchLockState();
   setupRealtimeSubscription();
 
-  // ===== 主揪權限驗證小幫手 =====
+  // ===== 主揪權限驗證小幫手 (記住狀態，不重複詢問) =====
   function verifyHost() {
+    if (isHostAuthenticated) return true; // 若已經驗證過，直接放行
+
     const pwd = prompt('🔒 此動作僅限主揪執行，請輸入主揪密碼：');
     if (pwd === null) return false;
     if (pwd === HOST_PASSWORD) {
+      isHostAuthenticated = true; // 記住已驗證
       return true;
     } else {
       alert('❌ 密碼錯誤，您沒有主揪權限！');
       return false;
+    }
+  }
+
+  // ===== 鎖定狀態同步邏輯 =====
+  async function fetchLockState() {
+    const { data, error } = await _supabase
+      .from('app_settings')
+      .select('value')
+      .eq('key', 'is_locked')
+      .single();
+
+    if (!error && data) {
+      isLocked = (data.value === 'true' || data.value === true);
+      updateUI();
+    }
+  }
+
+  async function toggleLock() {
+    if (!verifyHost()) return;
+
+    isLocked = !isLocked;
+
+    const { error } = await _supabase
+      .from('app_settings')
+      .update({ value: String(isLocked) })
+      .eq('key', 'is_locked');
+
+    if (error) {
+      alert('同步鎖定狀態失敗: ' + error.message);
+      isLocked = !isLocked;
+    } else {
+      updateUI();
     }
   }
 
@@ -391,6 +428,9 @@
             isUpdatingShopName = true;
             document.getElementById('shopNameInput').value = payload.new.value || '';
             isUpdatingShopName = false;
+          } else if (payload.new.key === 'is_locked') {
+            isLocked = (payload.new.value === 'true' || payload.new.value === true);
+            updateUI();
           }
         }
       })
@@ -402,7 +442,6 @@
     renderSummary();
     updateStats();
     updateLockState();
-    localStorage.setItem('office_locked', JSON.stringify(isLocked));
   }
 
   async function submitAllOrders() {
@@ -634,13 +673,6 @@
     document.getElementById('unpaidUsers').innerText = unpaidCount;
   }
 
-  function toggleLock() {
-    if (!verifyHost()) return;
-
-    isLocked = !isLocked;
-    updateUI();
-  }
-
   function updateLockState() {
     const lockBtn = document.getElementById('lockBtn');
     const lockBanner = document.getElementById('lockBanner');
@@ -831,7 +863,6 @@
     });
   }
 
-  // ===== 匯出包含「叫餐彙總」與「詳細清單」的 CSV =====
   function exportCSV() {
     if (orders.length === 0) {
       alert('目前沒有資料可以匯出！');
@@ -839,9 +870,8 @@
     }
 
     const shopName = document.getElementById('shopNameInput').value.trim() || '團購';
-    let csv = '\uFEFF'; // UTF-8 BOM 避免 Excel 亂碼
+    let csv = '\uFEFF';
 
-    // 1. 區段一：叫餐彙總 (打電話用)
     csv += '【主揪叫餐彙總】\n';
     csv += '品項,單價,備註需求,總份數,小計金額,點餐人員與數量\n';
 
@@ -872,7 +902,6 @@
     const totalCount = orders.reduce((sum, o) => sum + (o.quantity || 1), 0);
     csv += `"總計",,,${totalCount},${totalAmount},\n\n`;
 
-    // 2. 區段二：個人詳細點餐清單
     csv += '【個人詳細點餐清單】\n';
     csv += '姓名,品項,單價,數量,小計,備註,付款狀態\n';
     orders.forEach(o => {
@@ -880,7 +909,6 @@
       csv += `"${o.user_name}","${o.item_name}",${o.price},${qty},${o.price * qty},"${o.options || ''}","${o.is_paid ? '已付款' : '未付款'}"\n`;
     });
 
-    // 觸發下載
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
